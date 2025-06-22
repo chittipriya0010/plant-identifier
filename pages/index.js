@@ -33,8 +33,33 @@ export default function Home() {
     noKeyboard: true
   });
 
-  // Handle clicking on the image preview to upload a new image
+  // Handle clicking on the image preview to show camera/file options
   const handleImageClick = () => {
+    // Create a custom file input with camera option
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.capture = 'environment'; // Use rear camera for better plant photos
+    
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        setSelectedImage(file);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setImagePreview(e.target.result);
+        };
+        reader.readAsDataURL(file);
+        setPlantInfo(null);
+        setError(null);
+      }
+    };
+    
+    input.click();
+  };
+
+  // Handle regular file upload (for the main dropzone)
+  const handleFileUpload = () => {
     open();
   };
 
@@ -129,7 +154,7 @@ export default function Home() {
                   ? 'border-emerald-500 bg-emerald-50/50 scale-105 shadow-lg'
                   : 'border-slate-300 hover:border-emerald-400 hover:bg-slate-50/50 hover:scale-102'
               }`}
-              onClick={open}
+              onClick={handleFileUpload}
             >
               <input {...getInputProps()} />
               <div className="space-y-6">
@@ -179,8 +204,8 @@ export default function Home() {
                     <div className="absolute inset-0 bg-black/0 hover:bg-black/10 rounded-2xl transition-all duration-300 flex items-center justify-center opacity-0 hover:opacity-100 cursor-pointer">
                       <div className="bg-white/90 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg transform scale-75 hover:scale-100 transition-transform duration-200">
                         <span className="text-slate-700 font-medium text-sm flex items-center">
-                          <span className="mr-2">🔄</span>
-                          Click to change image
+                          <span className="mr-2">📸</span>
+                          Click to take photo
                         </span>
                       </div>
                     </div>
@@ -208,7 +233,7 @@ export default function Home() {
                     </span>
                   </button>
                   <p className="text-slate-500 text-sm">
-                    💡 Tip: Click on the image above to upload a different plant
+                    📸 Tip: Click on the image above to take a photo with your camera
                   </p>
                 </div>
               </div>
