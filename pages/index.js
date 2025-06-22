@@ -23,13 +23,20 @@ export default function Home() {
     }
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
     accept: {
       'image/*': ['.jpeg', '.jpg', '.png', '.webp']
     },
-    multiple: false
+    multiple: false,
+    noClick: true, // Disable click on the main dropzone
+    noKeyboard: true
   });
+
+  // Handle clicking on the image preview to upload a new image
+  const handleImageClick = () => {
+    open();
+  };
 
   const identifyPlant = async () => {
     if (!selectedImage) return;
@@ -122,6 +129,7 @@ export default function Home() {
                   ? 'border-emerald-500 bg-emerald-50/50 scale-105 shadow-lg'
                   : 'border-slate-300 hover:border-emerald-400 hover:bg-slate-50/50 hover:scale-102'
               }`}
+              onClick={open}
             >
               <input {...getInputProps()} />
               <div className="space-y-6">
@@ -160,13 +168,25 @@ export default function Home() {
               <div className="mt-8 text-center animate-fade-in">
                 <div className="inline-block relative group">
                   <div className="absolute inset-0 bg-gradient-to-r from-emerald-400 to-teal-400 rounded-2xl blur opacity-25 group-hover:opacity-40 transition-opacity duration-300"></div>
-                  <img
-                    src={imagePreview}
-                    alt="Selected plant"
-                    className="relative max-w-md max-h-80 rounded-2xl shadow-2xl border-4 border-white/50"
-                  />
+                  <div className="relative">
+                    <img
+                      src={imagePreview}
+                      alt="Selected plant"
+                      className="relative max-w-md max-h-80 rounded-2xl shadow-2xl border-4 border-white/50 cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-3xl"
+                      onClick={handleImageClick}
+                    />
+                    {/* Overlay hint */}
+                    <div className="absolute inset-0 bg-black/0 hover:bg-black/10 rounded-2xl transition-all duration-300 flex items-center justify-center opacity-0 hover:opacity-100 cursor-pointer">
+                      <div className="bg-white/90 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg transform scale-75 hover:scale-100 transition-transform duration-200">
+                        <span className="text-slate-700 font-medium text-sm flex items-center">
+                          <span className="mr-2">🔄</span>
+                          Click to change image
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-6">
+                <div className="mt-6 space-y-3">
                   <button
                     onClick={identifyPlant}
                     disabled={loading}
@@ -187,6 +207,9 @@ export default function Home() {
                       )}
                     </span>
                   </button>
+                  <p className="text-slate-500 text-sm">
+                    💡 Tip: Click on the image above to upload a different plant
+                  </p>
                 </div>
               </div>
             )}
