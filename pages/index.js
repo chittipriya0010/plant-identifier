@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import Image from 'next/image';
 import Head from 'next/head';
 
 export default function Home() {
