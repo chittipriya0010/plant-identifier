@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Image from 'next/image';
+import Head from 'next/head';
 
 export default function Home() {
   const [selectedImage, setSelectedImage] = useState(null);
@@ -8,6 +9,57 @@ export default function Home() {
   const [plantInfo, setPlantInfo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+
+  // PWA Installation handling
+  useEffect(() => {
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then((registration) => {
+          console.log('SW registered: ', registration);
+        })
+        .catch((registrationError) => {
+          console.log('SW registration failed: ', registrationError);
+        });
+    }
+
+    // Handle install prompt
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+
+    // Check if app is already installed
+    const checkIfInstalled = () => {
+      if (window.matchMedia('(display-mode: standalone)').matches || 
+          window.navigator.standalone === true) {
+        setIsInstalled(true);
+      }
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', () => {
+      setIsInstalled(true);
+      setInstallPrompt(null);
+    });
+
+    checkIfInstalled();
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  // Handle PWA installation
+  const handleInstallClick = async () => {
+    if (!installPrompt) return;
+
+    const result = await installPrompt.prompt();
+    console.log('Install result: ', result);
+    setInstallPrompt(null);
+  };
 
   const onDrop = useCallback((acceptedFiles) => {
     const file = acceptedFiles[0];
@@ -29,17 +81,16 @@ export default function Home() {
       'image/*': ['.jpeg', '.jpg', '.png', '.webp']
     },
     multiple: false,
-    noClick: true, // Disable click on the main dropzone
+    noClick: true,
     noKeyboard: true
   });
 
   // Handle clicking on the image preview to show camera/file options
   const handleImageClick = () => {
-    // Create a custom file input with camera option
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
-    input.capture = 'environment'; // Use rear camera for better plant photos
+    input.capture = 'environment';
     
     input.onchange = (e) => {
       const file = e.target.files[0];
@@ -58,7 +109,6 @@ export default function Home() {
     input.click();
   };
 
-  // Handle regular file upload (for the main dropzone)
   const handleFileUpload = () => {
     open();
   };
@@ -121,278 +171,329 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-100">
-      {/* Animated background elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-4 -left-4 w-72 h-72 bg-green-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-pulse"></div>
-        <div className="absolute -bottom-8 -right-4 w-96 h-96 bg-emerald-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse animation-delay-2000"></div>
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-teal-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse animation-delay-4000"></div>
-      </div>
+    <>
+      <Head>
+        <title>Plant Identifier - Discover Nature with AI</title>
+        <meta name="description" content="Discover the secrets of nature. Upload any plant image and let AI reveal its identity, safety information, and fascinating details." />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta name="theme-color" content="#059669" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="Plant Identifier" />
+        <meta name="format-detection" content="telephone=no" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        
+        {/* PWA Icons */}
+        <link rel="icon" href="/favicon.ico" />
+        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        <link rel="manifest" href="/manifest.json" />
+        
+        {/* iOS Splash Screens */}
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <link rel="apple-touch-startup-image" href="/splash/iphone5_splash.png" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="apple-touch-startup-image" href="/splash/iphone6_splash.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="apple-touch-startup-image" href="/splash/iphoneplus_splash.png" media="(device-width: 621px) and (device-height: 1104px) and (-webkit-device-pixel-ratio: 3)" />
+        <link rel="apple-touch-startup-image" href="/splash/iphonex_splash.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" />
+        <link rel="apple-touch-startup-image" href="/splash/iphonexr_splash.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="apple-touch-startup-image" href="/splash/iphonexsmax_splash.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)" />
+        <link rel="apple-touch-startup-image" href="/splash/ipad_splash.png" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="apple-touch-startup-image" href="/splash/ipadpro1_splash.png" media="(device-width: 834px) and (device-height: 1112px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="apple-touch-startup-image" href="/splash/ipadpro3_splash.png" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="apple-touch-startup-image" href="/splash/ipadpro2_splash.png" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)" />
+      </Head>
 
-      <div className="relative container mx-auto px-4 py-8">
-        <div className="max-w-5xl mx-auto">
-          {/* Header */}
-          <div className="text-center mb-12 animate-fade-in">
-            <div className="inline-block p-4 bg-white/20 backdrop-blur-sm rounded-full mb-6">
-              <div className="text-6xl animate-bounce">🌿</div>
-            </div>
-            <h1 className="text-5xl font-extrabold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent mb-4">
-              Plant Identifier
-            </h1>
-            <p className="text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">
-              Discover the secrets of nature. Upload any plant image and let AI reveal its identity, 
-              safety information, and fascinating details.
-            </p>
-          </div>
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-100">
+        {/* Animated background elements */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-4 -left-4 w-72 h-72 bg-green-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-pulse"></div>
+          <div className="absolute -bottom-8 -right-4 w-96 h-96 bg-emerald-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse animation-delay-2000"></div>
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-teal-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse animation-delay-4000"></div>
+        </div>
 
-          {/* Upload Area */}
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-2xl p-8 mb-8 border border-white/20 hover:shadow-3xl transition-all duration-300">
-            <div
-              {...getRootProps()}
-              className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all duration-300 ${
-                isDragActive
-                  ? 'border-emerald-500 bg-emerald-50/50 scale-105 shadow-lg'
-                  : 'border-slate-300 hover:border-emerald-400 hover:bg-slate-50/50 hover:scale-102'
-              }`}
-              onClick={handleFileUpload}
-            >
-              <input {...getInputProps()} />
-              <div className="space-y-6">
-                <div className={`text-8xl transition-transform duration-300 ${isDragActive ? 'scale-110' : ''}`}>
-                  {isDragActive ? '🌱' : '📷'}
+        <div className="relative container mx-auto px-4 py-8">
+          <div className="max-w-5xl mx-auto">
+            {/* Install Button for PWA */}
+            {installPrompt && !isInstalled && (
+              <div className="fixed top-4 right-4 z-50 animate-bounce">
+                <button
+                  onClick={handleInstallClick}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center space-x-2 transition-all duration-200 transform hover:scale-105"
+                >
+                  <span className="text-lg">📱</span>
+                  <span className="font-medium">Install App</span>
+                </button>
+              </div>
+            )}
+
+            {/* Header */}
+            <div className="text-center mb-12 animate-fade-in">
+              <div className="inline-block p-4 bg-white/20 backdrop-blur-sm rounded-full mb-6">
+                <div className="text-6xl animate-bounce">🌿</div>
+              </div>
+              <h1 className="text-5xl font-extrabold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent mb-4">
+                Plant Identifier
+              </h1>
+              <p className="text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">
+                Discover the secrets of nature. Upload any plant image and let AI reveal its identity, 
+                safety information, and fascinating details.
+              </p>
+              {isInstalled && (
+                <div className="mt-4 inline-flex items-center bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full text-sm">
+                  <span className="mr-2">✅</span>
+                  App installed - works offline!
                 </div>
-                {isDragActive ? (
-                  <div className="animate-pulse">
-                    <p className="text-emerald-600 font-semibold text-xl">
-                      Drop your plant image here...
-                    </p>
-                    <p className="text-emerald-500 text-sm mt-2">
-                      Release to analyze
-                    </p>
+              )}
+            </div>
+
+            {/* Upload Area */}
+            <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-2xl p-8 mb-8 border border-white/20 hover:shadow-3xl transition-all duration-300">
+              <div
+                {...getRootProps()}
+                className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all duration-300 ${
+                  isDragActive
+                    ? 'border-emerald-500 bg-emerald-50/50 scale-105 shadow-lg'
+                    : 'border-slate-300 hover:border-emerald-400 hover:bg-slate-50/50 hover:scale-102'
+                }`}
+                onClick={handleFileUpload}
+              >
+                <input {...getInputProps()} />
+                <div className="space-y-6">
+                  <div className={`text-8xl transition-transform duration-300 ${isDragActive ? 'scale-110' : ''}`}>
+                    {isDragActive ? '🌱' : '📷'}
                   </div>
-                ) : (
-                  <div>
-                    <p className="text-slate-700 font-semibold text-xl mb-2">
-                      Drag & drop a plant image here
-                    </p>
-                    <p className="text-slate-500 text-lg">
-                      or click to browse your files
-                    </p>
-                    <div className="mt-4 flex justify-center space-x-4 text-sm text-slate-400">
-                      <span className="bg-slate-100 px-3 py-1 rounded-full">JPG</span>
-                      <span className="bg-slate-100 px-3 py-1 rounded-full">PNG</span>
-                      <span className="bg-slate-100 px-3 py-1 rounded-full">WEBP</span>
+                  {isDragActive ? (
+                    <div className="animate-pulse">
+                      <p className="text-emerald-600 font-semibold text-xl">
+                        Drop your plant image here...
+                      </p>
+                      <p className="text-emerald-500 text-sm mt-2">
+                        Release to analyze
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-slate-700 font-semibold text-xl mb-2">
+                        Drag & drop a plant image here
+                      </p>
+                      <p className="text-slate-500 text-lg">
+                        or click to browse your files
+                      </p>
+                      <div className="mt-4 flex justify-center space-x-4 text-sm text-slate-400">
+                        <span className="bg-slate-100 px-3 py-1 rounded-full">JPG</span>
+                        <span className="bg-slate-100 px-3 py-1 rounded-full">PNG</span>
+                        <span className="bg-slate-100 px-3 py-1 rounded-full">WEBP</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Image Preview */}
+              {imagePreview && (
+                <div className="mt-8 text-center animate-fade-in">
+                  <div className="inline-block relative group">
+                    <div className="absolute inset-0 bg-gradient-to-r from-emerald-400 to-teal-400 rounded-2xl blur opacity-25 group-hover:opacity-40 transition-opacity duration-300"></div>
+                    <div className="relative">
+                      <img
+                        src={imagePreview}
+                        alt="Selected plant"
+                        className="relative max-w-md max-h-80 rounded-2xl shadow-2xl border-4 border-white/50 cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-3xl"
+                        onClick={handleImageClick}
+                      />
+                      {/* Overlay hint */}
+                      <div className="absolute inset-0 bg-black/0 hover:bg-black/10 rounded-2xl transition-all duration-300 flex items-center justify-center opacity-0 hover:opacity-100 cursor-pointer">
+                        <div className="bg-white/90 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg transform scale-75 hover:scale-100 transition-transform duration-200">
+                          <span className="text-slate-700 font-medium text-sm flex items-center">
+                            <span className="mr-2">📸</span>
+                            Click to take photo
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                )}
-              </div>
+                  <div className="mt-6 space-y-3">
+                    <button
+                      onClick={identifyPlant}
+                      disabled={loading}
+                      className="group relative inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white transition-all duration-300 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full hover:from-emerald-600 hover:to-teal-600 focus:outline-none focus:ring-4 focus:ring-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95"
+                    >
+                      <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-emerald-600 to-teal-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
+                      <span className="relative flex items-center">
+                        {loading ? (
+                          <>
+                            <div className="animate-spin mr-3 text-xl">🌱</div>
+                            Analyzing Magic...
+                          </>
+                        ) : (
+                          <>
+                            <span className="mr-3 text-xl">🔍</span>
+                            Identify Plant
+                          </>
+                        )}
+                      </span>
+                    </button>
+                    <p className="text-slate-500 text-sm">
+                      📸 Tip: Click on the image above to take a photo with your camera
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Image Preview */}
-            {imagePreview && (
-              <div className="mt-8 text-center animate-fade-in">
-                <div className="inline-block relative group">
-                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-400 to-teal-400 rounded-2xl blur opacity-25 group-hover:opacity-40 transition-opacity duration-300"></div>
+            {/* Loading State */}
+            {loading && (
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-2xl p-8 text-center mb-8 border border-white/20 animate-pulse">
+                <div className="flex justify-center mb-6">
                   <div className="relative">
-                    <img
-                      src={imagePreview}
-                      alt="Selected plant"
-                      className="relative max-w-md max-h-80 rounded-2xl shadow-2xl border-4 border-white/50 cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-3xl"
-                      onClick={handleImageClick}
-                    />
-                    {/* Overlay hint */}
-                    <div className="absolute inset-0 bg-black/0 hover:bg-black/10 rounded-2xl transition-all duration-300 flex items-center justify-center opacity-0 hover:opacity-100 cursor-pointer">
-                      <div className="bg-white/90 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg transform scale-75 hover:scale-100 transition-transform duration-200">
-                        <span className="text-slate-700 font-medium text-sm flex items-center">
-                          <span className="mr-2">📸</span>
-                          Click to take photo
-                        </span>
+                    <div className="w-16 h-16 border-4 border-emerald-200 rounded-full animate-spin"></div>
+                    <div className="absolute inset-0 w-16 h-16 border-4 border-transparent border-t-emerald-500 rounded-full animate-spin"></div>
+                    <div className="absolute inset-2 text-2xl animate-pulse">🌿</div>
+                  </div>
+                </div>
+                <p className="text-slate-700 text-xl font-medium mb-2">Analyzing your plant...</p>
+                <p className="text-slate-500">Our AI is examining every detail</p>
+              </div>
+            )}
+
+            {/* Error State */}
+            {error && (
+              <div className="bg-red-50/80 backdrop-blur-sm border border-red-200 rounded-2xl p-6 mb-8 shadow-lg animate-shake">
+                <div className="flex items-center justify-center space-x-3">
+                  <div className="text-3xl animate-bounce">⚠️</div>
+                  <div>
+                    <p className="text-red-700 font-semibold text-lg">{error}</p>
+                    <p className="text-red-600 text-sm">Please try again with a different image</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Results */}
+            {plantInfo && (
+              <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-2xl p-8 border border-white/20 animate-fade-in">
+                <div className="space-y-8">
+                  {/* Plant Name */}
+                  <div className="text-center border-b border-slate-200 pb-6">
+                    <div className="inline-block p-3 bg-gradient-to-r from-emerald-100 to-teal-100 rounded-full mb-4">
+                      <div className="text-4xl">🌿</div>
+                    </div>
+                    <h2 className="text-3xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent mb-2">
+                      {plantInfo.plantName}
+                    </h2>
+                    <div className="inline-flex items-center bg-slate-100 rounded-full px-4 py-2">
+                      <div className="w-2 h-2 bg-emerald-500 rounded-full mr-2 animate-pulse"></div>
+                      <p className="text-slate-600 font-medium">
+                        Confidence: {plantInfo.confidence}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Safety Alert */}
+                  <div className={`p-6 rounded-2xl border-2 shadow-lg ${getDangerColor(plantInfo.dangerLevel)}`}>
+                    <div className="flex items-center space-x-3 mb-4">
+                      <div className="text-4xl animate-pulse">
+                        {getDangerIcon(plantInfo.dangerLevel)}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-2xl">
+                          {plantInfo.dangerLevel}
+                        </h3>
+                        <p className="text-sm opacity-80">Safety Assessment</p>
+                      </div>
+                    </div>
+                    
+                    {plantInfo.isDangerous && (
+                      <div className="space-y-3 bg-white/30 rounded-xl p-4">
+                        {plantInfo.toxicParts.length > 0 && (
+                          <div className="flex items-start space-x-2">
+                            <span className="text-lg">🔴</span>
+                            <div>
+                              <p className="font-semibold">Toxic Parts:</p>
+                              <p>{plantInfo.toxicParts.join(', ')}</p>
+                            </div>
+                          </div>
+                        )}
+                        {plantInfo.symptoms.length > 0 && (
+                          <div className="flex items-start space-x-2">
+                            <span className="text-lg">⚕️</span>
+                            <div>
+                              <p className="font-semibold">Symptoms:</p>
+                              <p>{plantInfo.symptoms.join(', ')}</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Safety Tips */}
+                  {plantInfo.safetyTips.length > 0 && (
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-2xl border border-blue-200 shadow-lg">
+                      <h3 className="font-bold text-blue-800 mb-4 flex items-center text-xl">
+                        <span className="mr-3 text-2xl">💡</span>
+                        Safety Guidelines
+                      </h3>
+                      <div className="grid gap-3">
+                        {plantInfo.safetyTips.map((tip, index) => (
+                          <div key={index} className="flex items-start space-x-3 bg-white/50 rounded-lg p-3">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
+                            <p className="text-blue-700">{tip}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* General Information */}
+                  <div className="grid lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2">
+                      <div className="bg-gradient-to-br from-slate-50 to-slate-100 p-6 rounded-2xl shadow-lg border border-slate-200">
+                        <h3 className="font-bold text-slate-800 mb-3 flex items-center text-xl">
+                          <span className="mr-3 text-2xl">📖</span>
+                          Description
+                        </h3>
+                        <p className="text-slate-700 leading-relaxed">{plantInfo.generalInfo}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-6">
+                      <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-6 rounded-2xl shadow-lg border border-emerald-200">
+                        <h3 className="font-bold text-emerald-800 mb-3 flex items-center">
+                          <span className="mr-2 text-xl">🌍</span>
+                          Habitat
+                        </h3>
+                        <p className="text-emerald-700">{plantInfo.habitat}</p>
+                      </div>
+                      
+                      <div className="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-2xl shadow-lg border border-purple-200">
+                        <h3 className="font-bold text-purple-800 mb-3 flex items-center">
+                          <span className="mr-2 text-xl">🛠️</span>
+                          Uses
+                        </h3>
+                        <p className="text-purple-700">{plantInfo.uses}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Disclaimer */}
+                  <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 p-6 rounded-2xl shadow-lg">
+                    <div className="flex items-start space-x-3">
+                      <div className="text-2xl">⚖️</div>
+                      <div>
+                        <p className="text-amber-800 font-medium">
+                          <strong>Important Disclaimer:</strong> This identification is powered by AI and should be used as a starting point only. 
+                          For critical safety decisions, especially regarding plant toxicity, always consult with qualified botanists, 
+                          horticulturists, or medical professionals.
+                        </p>
                       </div>
                     </div>
                   </div>
                 </div>
-                <div className="mt-6 space-y-3">
-                  <button
-                    onClick={identifyPlant}
-                    disabled={loading}
-                    className="group relative inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white transition-all duration-300 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full hover:from-emerald-600 hover:to-teal-600 focus:outline-none focus:ring-4 focus:ring-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95"
-                  >
-                    <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-emerald-600 to-teal-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
-                    <span className="relative flex items-center">
-                      {loading ? (
-                        <>
-                          <div className="animate-spin mr-3 text-xl">🌱</div>
-                          Analyzing Magic...
-                        </>
-                      ) : (
-                        <>
-                          <span className="mr-3 text-xl">🔍</span>
-                          Identify Plant
-                        </>
-                      )}
-                    </span>
-                  </button>
-                  <p className="text-slate-500 text-sm">
-                    📸 Tip: Click on the image above to take a photo with your camera
-                  </p>
-                </div>
               </div>
             )}
           </div>
-
-          {/* Loading State */}
-          {loading && (
-            <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-2xl p-8 text-center mb-8 border border-white/20 animate-pulse">
-              <div className="flex justify-center mb-6">
-                <div className="relative">
-                  <div className="w-16 h-16 border-4 border-emerald-200 rounded-full animate-spin"></div>
-                  <div className="absolute inset-0 w-16 h-16 border-4 border-transparent border-t-emerald-500 rounded-full animate-spin"></div>
-                  <div className="absolute inset-2 text-2xl animate-pulse">🌿</div>
-                </div>
-              </div>
-              <p className="text-slate-700 text-xl font-medium mb-2">Analyzing your plant...</p>
-              <p className="text-slate-500">Our AI is examining every detail</p>
-            </div>
-          )}
-
-          {/* Error State */}
-          {error && (
-            <div className="bg-red-50/80 backdrop-blur-sm border border-red-200 rounded-2xl p-6 mb-8 shadow-lg animate-shake">
-              <div className="flex items-center justify-center space-x-3">
-                <div className="text-3xl animate-bounce">⚠️</div>
-                <div>
-                  <p className="text-red-700 font-semibold text-lg">{error}</p>
-                  <p className="text-red-600 text-sm">Please try again with a different image</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Results */}
-          {plantInfo && (
-            <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-2xl p-8 border border-white/20 animate-fade-in">
-              <div className="space-y-8">
-                {/* Plant Name */}
-                <div className="text-center border-b border-slate-200 pb-6">
-                  <div className="inline-block p-3 bg-gradient-to-r from-emerald-100 to-teal-100 rounded-full mb-4">
-                    <div className="text-4xl">🌿</div>
-                  </div>
-                  <h2 className="text-3xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent mb-2">
-                    {plantInfo.plantName}
-                  </h2>
-                  <div className="inline-flex items-center bg-slate-100 rounded-full px-4 py-2">
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full mr-2 animate-pulse"></div>
-                    <p className="text-slate-600 font-medium">
-                      Confidence: {plantInfo.confidence}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Safety Alert */}
-                <div className={`p-6 rounded-2xl border-2 shadow-lg ${getDangerColor(plantInfo.dangerLevel)}`}>
-                  <div className="flex items-center space-x-3 mb-4">
-                    <div className="text-4xl animate-pulse">
-                      {getDangerIcon(plantInfo.dangerLevel)}
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-2xl">
-                        {plantInfo.dangerLevel}
-                      </h3>
-                      <p className="text-sm opacity-80">Safety Assessment</p>
-                    </div>
-                  </div>
-                  
-                  {plantInfo.isDangerous && (
-                    <div className="space-y-3 bg-white/30 rounded-xl p-4">
-                      {plantInfo.toxicParts.length > 0 && (
-                        <div className="flex items-start space-x-2">
-                          <span className="text-lg">🔴</span>
-                          <div>
-                            <p className="font-semibold">Toxic Parts:</p>
-                            <p>{plantInfo.toxicParts.join(', ')}</p>
-                          </div>
-                        </div>
-                      )}
-                      {plantInfo.symptoms.length > 0 && (
-                        <div className="flex items-start space-x-2">
-                          <span className="text-lg">⚕️</span>
-                          <div>
-                            <p className="font-semibold">Symptoms:</p>
-                            <p>{plantInfo.symptoms.join(', ')}</p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Safety Tips */}
-                {plantInfo.safetyTips.length > 0 && (
-                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-2xl border border-blue-200 shadow-lg">
-                    <h3 className="font-bold text-blue-800 mb-4 flex items-center text-xl">
-                      <span className="mr-3 text-2xl">💡</span>
-                      Safety Guidelines
-                    </h3>
-                    <div className="grid gap-3">
-                      {plantInfo.safetyTips.map((tip, index) => (
-                        <div key={index} className="flex items-start space-x-3 bg-white/50 rounded-lg p-3">
-                          <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                          <p className="text-blue-700">{tip}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* General Information */}
-                <div className="grid lg:grid-cols-3 gap-6">
-                  <div className="lg:col-span-2">
-                    <div className="bg-gradient-to-br from-slate-50 to-slate-100 p-6 rounded-2xl shadow-lg border border-slate-200">
-                      <h3 className="font-bold text-slate-800 mb-3 flex items-center text-xl">
-                        <span className="mr-3 text-2xl">📖</span>
-                        Description
-                      </h3>
-                      <p className="text-slate-700 leading-relaxed">{plantInfo.generalInfo}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-6">
-                    <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-6 rounded-2xl shadow-lg border border-emerald-200">
-                      <h3 className="font-bold text-emerald-800 mb-3 flex items-center">
-                        <span className="mr-2 text-xl">🌍</span>
-                        Habitat
-                      </h3>
-                      <p className="text-emerald-700">{plantInfo.habitat}</p>
-                    </div>
-                    
-                    <div className="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-2xl shadow-lg border border-purple-200">
-                      <h3 className="font-bold text-purple-800 mb-3 flex items-center">
-                        <span className="mr-2 text-xl">🛠️</span>
-                        Uses
-                      </h3>
-                      <p className="text-purple-700">{plantInfo.uses}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Disclaimer */}
-                <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 p-6 rounded-2xl shadow-lg">
-                  <div className="flex items-start space-x-3">
-                    <div className="text-2xl">⚖️</div>
-                    <div>
-                      <p className="text-amber-800 font-medium">
-                        <strong>Important Disclaimer:</strong> This identification is powered by AI and should be used as a starting point only. 
-                        For critical safety decisions, especially regarding plant toxicity, always consult with qualified botanists, 
-                        horticulturists, or medical professionals.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
-    </div>
+    </>
   );
 }
