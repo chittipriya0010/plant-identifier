@@ -1,498 +1,760 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Head from 'next/head';
+import { AlertCircle, AlertTriangle, Sparkles, Globe } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+
+// Modular Components
+import { Navbar } from '@/components/navigation/Navbar';
+import { MobileBottomBar } from '@/components/navigation/MobileBottomBar';
+import { DropzoneSection } from '@/components/scanner/DropzoneSection';
+import { AnalysisProgress } from '@/components/scanner/AnalysisProgress';
+import { PlantResults } from '@/components/results/PlantResults';
+import { CameraModal } from '@/components/camera/CameraModal';
+import { DoctorFloraDrawer } from '@/components/chat/DoctorFloraDrawer';
+import { RecentScansModal } from '@/components/history/RecentScansModal';
+import { InstallAppModal } from '@/components/app/InstallAppModal';
+
+import { PlantSkeletonCard } from '@/components/results/PlantSkeletonCard';
+
+// Utilities
+import { compressImage } from '@/lib/imageUtils';
+import { SHOWCASE_SAMPLES, getShowcaseSamples } from '@/lib/sampleShowcaseData';
+import { UI_TRANSLATIONS, SUPPORTED_LANGUAGES, getDoctorFloraGreeting } from '@/lib/languages';
 
 export default function Home() {
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [plantInfo, setPlantInfo] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
   const [error, setError] = useState(null);
-  const [installPrompt, setInstallPrompt] = useState(null);
-  const [isInstalled, setIsInstalled] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [copied, setCopied] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [showInstallAppModal, setShowInstallAppModal] = useState(false);
+  const [language, setLanguage] = useState('en');
 
-  // PWA Installation handling
+  // Conversational LLM Botanist (Dr. Flora) state
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+
+  // Multi-language translation cache, chat ref, and specimen tracker
+  const translationCacheRef = useRef({});
+  const currentSpecimenKeyRef = useRef(null);
+  const chatMessagesRef = useRef(chatMessages);
+
   useEffect(() => {
-    // Register service worker
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-        .then((registration) => {
-          console.log('SW registered: ', registration);
-        })
-        .catch((registrationError) => {
-          console.log('SW registration failed: ', registrationError);
-        });
-    }
+    chatMessagesRef.current = chatMessages;
+  }, [chatMessages]);
 
-    // Handle install prompt
-    const handleBeforeInstallPrompt = (e) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-    };
-
-    // Check if app is already installed
-    const checkIfInstalled = () => {
-      if (window.matchMedia('(display-mode: standalone)').matches || 
-          window.navigator.standalone === true) {
-        setIsInstalled(true);
-      }
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', () => {
-      setIsInstalled(true);
-      setInstallPrompt(null);
-    });
-
-    checkIfInstalled();
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    };
-  }, []);
-
-  // Handle PWA installation
-  const handleInstallClick = async () => {
-    if (!installPrompt) return;
-
-    const result = await installPrompt.prompt();
-    console.log('Install result: ', result);
-    setInstallPrompt(null);
-  };
-
-  const onDrop = useCallback((acceptedFiles) => {
-    const file = acceptedFiles[0];
-    if (file) {
-      setSelectedImage(file);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImagePreview(e.target.result);
-      };
-      reader.readAsDataURL(file);
-      setPlantInfo(null);
-      setError(null);
-    }
-  }, []);
-
-  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
-    onDrop,
-    accept: {
-      'image/*': ['.jpeg', '.jpg', '.png', '.webp']
-    },
-    multiple: false,
-    noClick: true,
-    noKeyboard: true
-  });
-
-  // Handle clicking on the image preview to show camera/file options
-  const handleImageClick = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.capture = 'environment';
-    
-    input.onchange = (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        setSelectedImage(file);
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          setImagePreview(e.target.result);
-        };
-        reader.readAsDataURL(file);
-        setPlantInfo(null);
-        setError(null);
-      }
-    };
-    
-    input.click();
-  };
-
-  const handleFileUpload = () => {
-    open();
-  };
-
-  const identifyPlant = async () => {
-    if (!selectedImage) return;
-
-    setLoading(true);
-    setError(null);
-
+  // Load language from localStorage
+  useEffect(() => {
     try {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const imageData = e.target.result;
+      const savedLang = localStorage.getItem('flora_ai_language');
+      if (savedLang) setLanguage(savedLang);
+    } catch (e) {}
+  }, []);
 
-        const response = await fetch('/api/identify-plant', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ imageData }),
-        });
+  const handleLanguageChange = async (newLang) => {
+    setLanguage(newLang);
+    try {
+      localStorage.setItem('flora_ai_language', newLang);
+    } catch (e) {}
 
-        if (!response.ok) {
-          throw new Error('Failed to identify plant');
+    // If no plant is currently scanned, nothing to translate
+    if (!plantInfo) return;
+
+    const currentChat = chatMessagesRef.current;
+    const hasActiveChat = currentChat && currentChat.length > 1;
+
+    const specimenKey = currentSpecimenKeyRef.current || plantInfo.plantName || plantInfo.detectedObject || 'specimen';
+    const cacheKey = `${specimenKey}_${newLang}`;
+
+    const targetGreeting = getDoctorFloraGreeting(plantInfo.plantName || plantInfo.detectedObject, newLang);
+
+    // Fast initial greeting update ONLY if user has not engaged in chat yet
+    if (!hasActiveChat) {
+      setChatMessages([{ role: 'model', content: targetGreeting }]);
+    }
+
+    // Check if translation already exists in cache
+    if (translationCacheRef.current[cacheKey]) {
+      const cached = translationCacheRef.current[cacheKey];
+      if (cached.plantInfo) setPlantInfo(cached.plantInfo);
+
+      // Only restore cached chat if user is still at greeting level
+      if (!hasActiveChat) {
+        if (cached.chatMessages && cached.chatMessages.length > 0) {
+          setChatMessages(cached.chatMessages);
+        }
+        return;
+      }
+      // If user has an active multi-turn conversation, do NOT wipe with 1-message cached greeting!
+      // Instead, we proceed below to translate currentChat in-place!
+    }
+
+    // Call /api/translate-results to dynamically translate the botanical results & chat log in-place
+    setIsTranslating(true);
+    try {
+      const messagesToTranslate = hasActiveChat
+        ? currentChat
+        : [{ role: 'model', content: targetGreeting }];
+
+      const res = await fetch('/api/translate-results', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetLanguage: newLang,
+          plantInfo,
+          chatMessages: messagesToTranslate,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.translatedPlantInfo) {
+          setPlantInfo(data.translatedPlantInfo);
+        }
+        if (data.translatedChatMessages && data.translatedChatMessages.length > 0) {
+          // Seamless in-place update of all chat messages (both user questions & bot answers) without refreshing!
+          setChatMessages(data.translatedChatMessages);
         }
 
-        const result = await response.json();
-        setPlantInfo(result);
-      };
-      reader.readAsDataURL(selectedImage);
+        // Cache the translated specimen and conversation
+        translationCacheRef.current[cacheKey] = {
+          plantInfo: data.translatedPlantInfo || plantInfo,
+          chatMessages: data.translatedChatMessages || (hasActiveChat ? currentChat : [{ role: 'model', content: targetGreeting }]),
+        };
+      }
     } catch (err) {
-      setError('Failed to identify plant. Please try again.');
-      console.error(err);
+      console.warn('Dynamic language translation error:', err.message);
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const t = UI_TRANSLATIONS[language] || UI_TRANSLATIONS.en;
+
+  // Abort controller ref to cancel in-flight API requests
+  const abortControllerRef = useRef(null);
+  const userCancelledRef = useRef(false);
+
+  // Live Camera state
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraFacing, setCameraFacing] = useState('environment');
+  const [cameraError, setCameraError] = useState(null);
+  const videoRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+
+  // Load scan history from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('flora_ai_scan_history');
+      if (saved) setHistory(JSON.parse(saved));
+    } catch (e) {
+      console.error('Failed to load scan history:', e);
+    }
+  }, []);
+
+  // Lock background scroll when drawer or modal is open to keep view pristine
+  useEffect(() => {
+    if (isChatOpen || showHistoryModal || isCameraOpen || showInstallAppModal) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isChatOpen, showHistoryModal, isCameraOpen, showInstallAppModal]);
+
+  const saveToHistory = (info, previewUrl) => {
+    if (!info) return;
+    try {
+      const newItem = {
+        id: Date.now(),
+        date: new Date().toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        name: info.plantName || info.detectedObject || 'Unknown Specimen',
+        classification: info.classification,
+        isMedicinal: info.isMedicinal,
+        isDangerous: info.isDangerous,
+        isArtificial: info.isArtificial || info.classification === 'plastic_or_toy_plant',
+        preview: previewUrl,
+        fullData: info,
+      };
+      const updated = [newItem, ...history.filter((h) => h.name !== newItem.name)].slice(0, 15);
+      setHistory(updated);
+      localStorage.setItem('flora_ai_scan_history', JSON.stringify(updated));
+    } catch (e) {
+      console.error('Failed to save scan history:', e);
+    }
+  };
+
+  const clearHistory = () => {
+    setHistory([]);
+    try {
+      localStorage.removeItem('flora_ai_scan_history');
+    } catch (e) {}
+  };
+
+  const handleSelectHistoryScan = (item) => {
+    if (item.preview) setImagePreview(item.preview);
+    if (item.fullData) setPlantInfo(item.fullData);
+    setError(null);
+    currentSpecimenKeyRef.current = item.name;
+    const greeting = getDoctorFloraGreeting(item.name, language);
+    setChatMessages([
+      {
+        role: 'model',
+        content: greeting,
+      },
+    ]);
+  };
+
+  // Instant Showcase / Client Demo preset loader
+  const handleLoadShowcase = (sample) => {
+    setImagePreview(sample.preview);
+    setPlantInfo(sample.data);
+    setError(null);
+    saveToHistory(sample.data, sample.preview);
+    currentSpecimenKeyRef.current = sample.id;
+
+    const greeting = getDoctorFloraGreeting(sample.label, language);
+    const initialMsgs = [{ role: 'model', content: greeting }];
+    setChatMessages(initialMsgs);
+
+    // Seed English translation cache
+    translationCacheRef.current[`${sample.id}_en`] = {
+      plantInfo: sample.data,
+      chatMessages: [{ role: 'model', content: getDoctorFloraGreeting(sample.label, 'en') }],
+    };
+
+    // If current language is not English, immediately translate preset to active language
+    if (language !== 'en') {
+      handleLanguageChange(language);
+    }
+  };
+
+  // Process image file and compress
+  const processImageFile = useCallback(async (file) => {
+    if (!file) return;
+    setSelectedImage(file);
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const compressed = await compressImage(e.target.result);
+      setImagePreview(compressed);
+      setPlantInfo(null);
+      setError(null);
+      setChatMessages([]);
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  // Dropzone file drop handler
+  const onDrop = useCallback(
+    async (acceptedFiles, fileRejections, event) => {
+      let file = acceptedFiles[0];
+
+      // Dragged directly from web browser / external image URL
+      if (!file && event?.dataTransfer?.items) {
+        for (let i = 0; i < event.dataTransfer.items.length; i++) {
+          const item = event.dataTransfer.items[i];
+          if (item.kind === 'file' && item.type.startsWith('image/')) {
+            file = item.getAsFile();
+            break;
+          }
+        }
+      }
+
+      if (file) {
+        await processImageFile(file);
+      }
+    },
+    [processImageFile]
+  );
+
+  // Global Clipboard Paste (Ctrl+V) listener
+  useEffect(() => {
+    const handleGlobalPaste = async (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+        return;
+      }
+      if (!e.clipboardData?.items) return;
+
+      for (let i = 0; i < e.clipboardData.items.length; i++) {
+        const item = e.clipboardData.items[i];
+        if (item.type?.startsWith('image/')) {
+          const blob = item.getAsFile();
+          if (blob) {
+            e.preventDefault();
+            await processImageFile(blob);
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handleGlobalPaste);
+    return () => window.removeEventListener('paste', handleGlobalPaste);
+  }, [processImageFile]);
+
+  // Paste button click
+  const handlePasteButtonClick = async () => {
+    try {
+      if (navigator.clipboard?.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          for (const type of item.types) {
+            if (type.startsWith('image/')) {
+              const blob = await item.getType(type);
+              await processImageFile(blob);
+              return;
+            }
+          }
+        }
+      }
+      alert('Clipboard me koi image nahi mili. Kisi plant photo ko copy karein aur Ctrl+V press karein.');
+    } catch (err) {
+      alert('Aap keyboard par direct Ctrl + V (or Cmd + V) press karke copied image paste kar sakte hain!');
+    }
+  };
+
+  const { getRootProps, getInputProps, isDragActive, open: openFilePicker } = useDropzone({
+    onDrop,
+    accept: { 'image/*': ['.jpeg', '.jpg', '.png', '.webp'] },
+    multiple: false,
+    noClick: true,
+    noKeyboard: true,
+  });
+
+  // Camera Controls
+  const startCamera = async (facing = cameraFacing) => {
+    setCameraError(null);
+    setIsCameraOpen(true);
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+    }
+
+    try {
+      const constraints = {
+        video: {
+          facingMode: facing,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      mediaStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+    } catch (err) {
+      console.error('Camera stream error:', err);
+      setCameraError('Camera access denied or unavailable. Please use file upload.');
+    }
+  };
+
+  const stopCamera = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+    }
+    setIsCameraOpen(false);
+  };
+
+  const flipCamera = () => {
+    const next = cameraFacing === 'environment' ? 'user' : 'environment';
+    setCameraFacing(next);
+    startCamera(next);
+  };
+
+  const captureSnapshot = async () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const compressed = await compressImage(canvas.toDataURL('image/jpeg', 0.85));
+    stopCamera();
+    setImagePreview(compressed);
+    setSelectedImage(compressed);
+    setPlantInfo(null);
+    setError(null);
+    setChatMessages([]);
+  };
+
+  // Identify Plant API call with strict client timeout and user cancellation
+  const identifyPlant = async () => {
+    if (!imagePreview) return;
+    setLoading(true);
+    setError(null);
+    userCancelledRef.current = false;
+
+    // Create an AbortController with generous 45s safety timeout
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 45000);
+
+    try {
+      const res = await fetch('/api/identify-plant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageData: imagePreview, language }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        if (res.status === 504 || res.status === 408) {
+          throw new Error('AI server response timed out due to high network traffic. Please tap "Identify & Analyze" again to retry.');
+        }
+        throw new Error(d.error || 'Failed to identify plant. Please try again.');
+      }
+
+      const result = await res.json();
+      setPlantInfo(result);
+      saveToHistory(result, imagePreview);
+
+      const specimenKey = result.plantName || result.detectedObject || ('specimen_' + Date.now());
+      currentSpecimenKeyRef.current = specimenKey;
+
+      // Preload botanist greeting in active language
+      const greeting = getDoctorFloraGreeting(result.plantName || result.detectedObject, language);
+      const initialMsgs = [{ role: 'model', content: greeting }];
+      setChatMessages(initialMsgs);
+
+      // Seed translation cache for current language
+      translationCacheRef.current[`${specimenKey}_${language}`] = {
+        plantInfo: result,
+        chatMessages: initialMsgs,
+      };
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        if (userCancelledRef.current) {
+          setError('Scan was cancelled.');
+        } else {
+          setError('The AI request took longer than expected due to server traffic. Please tap "Identify & Analyze" to retry.');
+        }
+      } else {
+        setError(err.message || 'Error occurred while scanning. Please try again.');
+      }
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
     }
   };
 
-  const getDangerColor = (dangerLevel) => {
-    switch (dangerLevel?.toLowerCase()) {
-      case 'safe': return 'text-emerald-700 bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200';
-      case 'mildly toxic': return 'text-amber-700 bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200';
-      case 'moderately toxic': return 'text-orange-700 bg-gradient-to-r from-orange-50 to-red-50 border-orange-200';
-      case 'highly toxic': return 'text-red-700 bg-gradient-to-r from-red-50 to-pink-50 border-red-200';
-      case 'deadly': return 'text-red-900 bg-gradient-to-r from-red-100 to-red-200 border-red-300';
-      default: return 'text-slate-700 bg-gradient-to-r from-slate-50 to-gray-50 border-slate-200';
+  // User manually cancels scan via button
+  const handleCancelScan = () => {
+    userCancelledRef.current = true;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setLoading(false);
+  };
+
+  // Send message to Dr. Flora Botanist LLM
+  const sendChatMessage = async (textToSend) => {
+    const query = typeof textToSend === 'string' ? textToSend : chatInput;
+    if (!query || !query.trim() || chatLoading) return;
+
+    const newMsgs = [...chatMessages, { role: 'user', content: query.trim() }];
+    setChatMessages(newMsgs);
+    setChatInput('');
+    setChatLoading(true);
+
+    try {
+      const res = await fetch('/api/chat-botanist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plantContext: plantInfo,
+          messages: newMsgs,
+          language,
+        }),
+      });
+
+      if (!res.ok) throw new Error('Botanist AI is currently busy.');
+      const data = await res.json();
+      setChatMessages([...newMsgs, { role: 'model', content: data.reply }]);
+    } catch (err) {
+      setChatMessages([
+        ...newMsgs,
+        { role: 'model', content: 'Connection issue. Please ask again.' },
+      ]);
+    } finally {
+      setChatLoading(false);
     }
   };
 
-  const getDangerIcon = (dangerLevel) => {
-    switch (dangerLevel?.toLowerCase()) {
-      case 'safe': return '✅';
-      case 'mildly toxic': return '⚠️';
-      case 'moderately toxic': return '🟠';
-      case 'highly toxic': return '🔴';
-      case 'deadly': return '☠️';
-      default: return '❓';
+  // Audio Speech Synthesis
+  const toggleSpeech = () => {
+    if (!plantInfo || typeof window === 'undefined' || !window.speechSynthesis) return;
+
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
     }
+
+    let speechText = '';
+    if (plantInfo.classification === 'not_a_plant') {
+      speechText = `This does not appear to be a plant. Detected object: ${plantInfo.detectedObject || 'non-botanical item'}. Please upload a real plant photo.`;
+    } else if (plantInfo.isArtificial || plantInfo.classification === 'plastic_or_toy_plant') {
+      speechText = `Identified as an artificial or toy plant. It is synthetic with no natural medicinal properties.`;
+    } else {
+      speechText = `${plantInfo.plantName}, scientifically known as ${plantInfo.scientificName || ''}. Safety status: ${plantInfo.dangerLevel || 'Safe'}. ${plantInfo.isMedicinal ? 'It possesses medicinal properties.' : ''} ${plantInfo.generalInfo || ''}`;
+    }
+
+    const u = new SpeechSynthesisUtterance(speechText);
+    u.rate = 0.95;
+    u.onend = () => setIsSpeaking(false);
+    u.onerror = () => setIsSpeaking(false);
+
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+    setIsSpeaking(true);
+  };
+
+  // Copy Summary to clipboard
+  const copySummary = () => {
+    if (!plantInfo) return;
+    const txt = `🌿 Plant: ${plantInfo.plantName || 'Unknown'} (${plantInfo.scientificName || ''})\n` +
+      `🛡️ Safety: ${plantInfo.dangerLevel || 'Safe'}\n` +
+      `💊 Medicinal: ${plantInfo.isMedicinal ? 'Yes' : 'No'}\n` +
+      `🐾 Pet Safe: ${plantInfo.petSafety?.isToxicToDogs || plantInfo.petSafety?.isToxicToCats ? 'Toxic' : 'Safe'}\n` +
+      `📖 Details: ${plantInfo.generalInfo || ''}`;
+    navigator.clipboard.writeText(txt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <>
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans pb-20 md:pb-10 selection:bg-emerald-500/30 selection:text-emerald-200 no-scrollbar">
       <Head>
-        <title>Plant Identifier - Discover Nature with AI</title>
-        <meta name="description" content="Discover the secrets of nature. Upload any plant image and let AI reveal its identity, safety information, and fascinating details." />
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <title>FloraAI — Botanical Specimen Intelligence & Medicinal Scanner</title>
+        <meta
+          name="description"
+          content="Identify plant specimens, verify Ayurvedic medicinal values, screen pet toxicity, and detect artificial/toy plants with Gemini AI."
+        />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
         <meta name="theme-color" content="#059669" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Plant Identifier" />
-        <meta name="format-detection" content="telephone=no" />
         <meta name="mobile-web-app-capable" content="yes" />
-        
-        {/* PWA Icons */}
-        <link rel="icon" href="/favicon.ico" />
-        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
-        <link rel="manifest" href="/manifest.json" />
-        
-        {/* iOS Splash Screens */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <link rel="apple-touch-startup-image" href="/splash/iphone5_splash.png" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)" />
-        <link rel="apple-touch-startup-image" href="/splash/iphone6_splash.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" />
-        <link rel="apple-touch-startup-image" href="/splash/iphoneplus_splash.png" media="(device-width: 621px) and (device-height: 1104px) and (-webkit-device-pixel-ratio: 3)" />
-        <link rel="apple-touch-startup-image" href="/splash/iphonex_splash.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" />
-        <link rel="apple-touch-startup-image" href="/splash/iphonexr_splash.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" />
-        <link rel="apple-touch-startup-image" href="/splash/iphonexsmax_splash.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)" />
-        <link rel="apple-touch-startup-image" href="/splash/ipad_splash.png" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2)" />
-        <link rel="apple-touch-startup-image" href="/splash/ipadpro1_splash.png" media="(device-width: 834px) and (device-height: 1112px) and (-webkit-device-pixel-ratio: 2)" />
-        <link rel="apple-touch-startup-image" href="/splash/ipadpro3_splash.png" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2)" />
-        <link rel="apple-touch-startup-image" href="/splash/ipadpro2_splash.png" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
       </Head>
 
-      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-100">
-        {/* Animated background elements */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-4 -left-4 w-72 h-72 bg-green-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-pulse"></div>
-          <div className="absolute -bottom-8 -right-4 w-96 h-96 bg-emerald-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse animation-delay-2000"></div>
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-teal-200 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse animation-delay-4000"></div>
-        </div>
+      {/* Top Navbar */}
+      <Navbar
+        scanCount={history.length}
+        onOpenHistory={() => setShowHistoryModal(true)}
+        onOpenInstallApp={() => setShowInstallAppModal(true)}
+        language={language}
+        onLanguageChange={handleLanguageChange}
+      />
 
-        <div className="relative container mx-auto px-4 py-8">
-          <div className="max-w-5xl mx-auto">
-            {/* Install Button for PWA */}
-            {installPrompt && !isInstalled && (
-              <div className="fixed top-4 right-4 z-50 animate-bounce">
-                <button
-                  onClick={handleInstallClick}
-                  className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center space-x-2 transition-all duration-200 transform hover:scale-105"
-                >
-                  <span className="text-lg">📱</span>
-                  <span className="font-medium">Install App</span>
-                </button>
-              </div>
-            )}
+      {/* Main Container */}
+      <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6 sm:py-8 space-y-6">
+        {/* Hero Title */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>{t.heroBadge}</span>
+          </div>
+          <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
+            {t.heroHeading}
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto">
+            {t.heroDesc}
+          </p>
 
-            {/* Header */}
-            <div className="text-center mb-12 animate-fade-in">
-              <div className="inline-block p-4 bg-white/20 backdrop-blur-sm rounded-full mb-6">
-                <div className="text-6xl animate-bounce">🌿</div>
-              </div>
-              <h1 className="text-5xl font-extrabold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent mb-4">
-                Plant Identifier
-              </h1>
-              <p className="text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">
-                Discover the secrets of nature. Upload any plant image and let AI reveal its identity, 
-                safety information, and fascinating details.
-              </p>
-              {isInstalled && (
-                <div className="mt-4 inline-flex items-center bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full text-sm">
-                  <span className="mr-2">✅</span>
-                  App installed - works offline!
-                </div>
-              )}
-            </div>
-
-            {/* Upload Area */}
-            <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-2xl p-8 mb-8 border border-white/20 hover:shadow-3xl transition-all duration-300">
-              <div
-                {...getRootProps()}
-                className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all duration-300 ${
-                  isDragActive
-                    ? 'border-emerald-500 bg-emerald-50/50 scale-105 shadow-lg'
-                    : 'border-slate-300 hover:border-emerald-400 hover:bg-slate-50/50 hover:scale-102'
-                }`}
-                onClick={handleFileUpload}
-              >
-                <input {...getInputProps()} />
-                <div className="space-y-6">
-                  <div className={`text-8xl transition-transform duration-300 ${isDragActive ? 'scale-110' : ''}`}>
-                    {isDragActive ? '🌱' : '📷'}
-                  </div>
-                  {isDragActive ? (
-                    <div className="animate-pulse">
-                      <p className="text-emerald-600 font-semibold text-xl">
-                        Drop your plant image here...
-                      </p>
-                      <p className="text-emerald-500 text-sm mt-2">
-                        Release to analyze
-                      </p>
-                    </div>
-                  ) : (
-                    <div>
-                      <p className="text-slate-700 font-semibold text-xl mb-2">
-                        Drag & drop a plant image here
-                      </p>
-                      <p className="text-slate-500 text-lg">
-                        or click to browse your files
-                      </p>
-                      <div className="mt-4 flex justify-center space-x-4 text-sm text-slate-400">
-                        <span className="bg-slate-100 px-3 py-1 rounded-full">JPG</span>
-                        <span className="bg-slate-100 px-3 py-1 rounded-full">PNG</span>
-                        <span className="bg-slate-100 px-3 py-1 rounded-full">WEBP</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Image Preview */}
-              {imagePreview && (
-                <div className="mt-8 text-center animate-fade-in">
-                  <div className="inline-block relative group">
-                    <div className="absolute inset-0 bg-gradient-to-r from-emerald-400 to-teal-400 rounded-2xl blur opacity-25 group-hover:opacity-40 transition-opacity duration-300"></div>
-                    <div className="relative">
-                      <img
-                        src={imagePreview}
-                        alt="Selected plant"
-                        className="relative max-w-md max-h-80 rounded-2xl shadow-2xl border-4 border-white/50 cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-3xl"
-                        onClick={handleImageClick}
-                      />
-                      {/* Overlay hint */}
-                      <div className="absolute inset-0 bg-black/0 hover:bg-black/10 rounded-2xl transition-all duration-300 flex items-center justify-center opacity-0 hover:opacity-100 cursor-pointer">
-                        <div className="bg-white/90 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg transform scale-75 hover:scale-100 transition-transform duration-200">
-                          <span className="text-slate-700 font-medium text-sm flex items-center">
-                            <span className="mr-2">📸</span>
-                            Click to take photo
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-6 space-y-3">
-                    <button
-                      onClick={identifyPlant}
-                      disabled={loading}
-                      className="group relative inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white transition-all duration-300 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full hover:from-emerald-600 hover:to-teal-600 focus:outline-none focus:ring-4 focus:ring-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95"
-                    >
-                      <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-emerald-600 to-teal-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
-                      <span className="relative flex items-center">
-                        {loading ? (
-                          <>
-                            <div className="animate-spin mr-3 text-xl">🌱</div>
-                            Analyzing Magic...
-                          </>
-                        ) : (
-                          <>
-                            <span className="mr-3 text-xl">🔍</span>
-                            Identify Plant
-                          </>
-                        )}
-                      </span>
-                    </button>
-                    <p className="text-slate-500 text-sm">
-                      📸 Tip: Click on the image above to take a photo with your camera
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Loading State */}
-            {loading && (
-              <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-2xl p-8 text-center mb-8 border border-white/20 animate-pulse">
-                <div className="flex justify-center mb-6">
-                  <div className="relative">
-                    <div className="w-16 h-16 border-4 border-emerald-200 rounded-full animate-spin"></div>
-                    <div className="absolute inset-0 w-16 h-16 border-4 border-transparent border-t-emerald-500 rounded-full animate-spin"></div>
-                    <div className="absolute inset-2 text-2xl animate-pulse">🌿</div>
-                  </div>
-                </div>
-                <p className="text-slate-700 text-xl font-medium mb-2">Analyzing your plant...</p>
-                <p className="text-slate-500">Our AI is examining every detail</p>
-              </div>
-            )}
-
-            {/* Error State */}
-            {error && (
-              <div className="bg-red-50/80 backdrop-blur-sm border border-red-200 rounded-2xl p-6 mb-8 shadow-lg animate-shake">
-                <div className="flex items-center justify-center space-x-3">
-                  <div className="text-3xl animate-bounce">⚠️</div>
-                  <div>
-                    <p className="text-red-700 font-semibold text-lg">{error}</p>
-                    <p className="text-red-600 text-sm">Please try again with a different image</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Results */}
-            {plantInfo && (
-              <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-2xl p-8 border border-white/20 animate-fade-in">
-                <div className="space-y-8">
-                  {/* Plant Name */}
-                  <div className="text-center border-b border-slate-200 pb-6">
-                    <div className="inline-block p-3 bg-gradient-to-r from-emerald-100 to-teal-100 rounded-full mb-4">
-                      <div className="text-4xl">🌿</div>
-                    </div>
-                    <h2 className="text-3xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent mb-2">
-                      {plantInfo.plantName}
-                    </h2>
-                    <div className="inline-flex items-center bg-slate-100 rounded-full px-4 py-2">
-                      <div className="w-2 h-2 bg-emerald-500 rounded-full mr-2 animate-pulse"></div>
-                      <p className="text-slate-600 font-medium">
-                        Confidence: {plantInfo.confidence}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Safety Alert */}
-                  <div className={`p-6 rounded-2xl border-2 shadow-lg ${getDangerColor(plantInfo.dangerLevel)}`}>
-                    <div className="flex items-center space-x-3 mb-4">
-                      <div className="text-4xl animate-pulse">
-                        {getDangerIcon(plantInfo.dangerLevel)}
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-2xl">
-                          {plantInfo.dangerLevel}
-                        </h3>
-                        <p className="text-sm opacity-80">Safety Assessment</p>
-                      </div>
-                    </div>
-                    
-                    {plantInfo.isDangerous && (
-                      <div className="space-y-3 bg-white/30 rounded-xl p-4">
-                        {plantInfo.toxicParts.length > 0 && (
-                          <div className="flex items-start space-x-2">
-                            <span className="text-lg">🔴</span>
-                            <div>
-                              <p className="font-semibold">Toxic Parts:</p>
-                              <p>{plantInfo.toxicParts.join(', ')}</p>
-                            </div>
-                          </div>
-                        )}
-                        {plantInfo.symptoms.length > 0 && (
-                          <div className="flex items-start space-x-2">
-                            <span className="text-lg">⚕️</span>
-                            <div>
-                              <p className="font-semibold">Symptoms:</p>
-                              <p>{plantInfo.symptoms.join(', ')}</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Safety Tips */}
-                  {plantInfo.safetyTips.length > 0 && (
-                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-2xl border border-blue-200 shadow-lg">
-                      <h3 className="font-bold text-blue-800 mb-4 flex items-center text-xl">
-                        <span className="mr-3 text-2xl">💡</span>
-                        Safety Guidelines
-                      </h3>
-                      <div className="grid gap-3">
-                        {plantInfo.safetyTips.map((tip, index) => (
-                          <div key={index} className="flex items-start space-x-3 bg-white/50 rounded-lg p-3">
-                            <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                            <p className="text-blue-700">{tip}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* General Information */}
-                  <div className="grid lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2">
-                      <div className="bg-gradient-to-br from-slate-50 to-slate-100 p-6 rounded-2xl shadow-lg border border-slate-200">
-                        <h3 className="font-bold text-slate-800 mb-3 flex items-center text-xl">
-                          <span className="mr-3 text-2xl">📖</span>
-                          Description
-                        </h3>
-                        <p className="text-slate-700 leading-relaxed">{plantInfo.generalInfo}</p>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-6">
-                      <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-6 rounded-2xl shadow-lg border border-emerald-200">
-                        <h3 className="font-bold text-emerald-800 mb-3 flex items-center">
-                          <span className="mr-2 text-xl">🌍</span>
-                          Habitat
-                        </h3>
-                        <p className="text-emerald-700">{plantInfo.habitat}</p>
-                      </div>
-                      
-                      <div className="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-2xl shadow-lg border border-purple-200">
-                        <h3 className="font-bold text-purple-800 mb-3 flex items-center">
-                          <span className="mr-2 text-xl">🛠️</span>
-                          Uses
-                        </h3>
-                        <p className="text-purple-700">{plantInfo.uses}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Disclaimer */}
-                  <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 p-6 rounded-2xl shadow-lg">
-                    <div className="flex items-start space-x-3">
-                      <div className="text-2xl">⚖️</div>
-                      <div>
-                        <p className="text-amber-800 font-medium">
-                          <strong>Important Disclaimer:</strong> This identification is powered by AI and should be used as a starting point only. 
-                          For critical safety decisions, especially regarding plant toxicity, always consult with qualified botanists, 
-                          horticulturists, or medical professionals.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+          {/* Quick App Download Banner */}
+          <div className="pt-1 flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => setShowInstallAppModal(true)}
+              className="group inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 hover:bg-emerald-500/10 border border-emerald-500/30 text-xs text-slate-300 hover:text-emerald-300 transition-all cursor-pointer shadow-sm"
+            >
+              <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>{language === 'hi' ? '📲 FloraAI एंड्रॉइड ऐप उपलब्ध है (.apk डाउनलोड करें)' : '📲 FloraAI Android App available (Download APK)'}</span>
+              <span className="text-[10px] text-emerald-400 font-mono font-bold group-hover:translate-x-0.5 transition-transform">→</span>
+            </button>
           </div>
         </div>
-      </div>
-    </>
+
+        {/* Instant Client Showcase Demo Presets */}
+        <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-3.5 space-y-2 shadow-lg backdrop-blur-sm">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-semibold text-slate-300 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{t.showcaseTitle}</span>
+            </span>
+            <span className="text-[10px] text-slate-500 hidden sm:inline">
+              {t.showcaseHint}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {getShowcaseSamples(language).map((sample) => (
+              <button
+                key={sample.id}
+                type="button"
+                onClick={() => handleLoadShowcase(sample)}
+                className="group px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-emerald-950/40 border border-slate-700/80 hover:border-emerald-500/50 text-xs font-medium text-slate-200 hover:text-emerald-300 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+              >
+                <span>{sample.label}</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-slate-950 text-slate-400 border border-slate-700/60 group-hover:text-emerald-400 group-hover:border-emerald-500/40">
+                  {sample.badge}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Dropzone / Upload / Paste Card */}
+        <DropzoneSection
+          getRootProps={getRootProps}
+          getInputProps={getInputProps}
+          isDragActive={isDragActive}
+          imagePreview={imagePreview}
+          loading={loading}
+          language={language}
+          onClearImage={() => {
+            setImagePreview(null);
+            setSelectedImage(null);
+            setPlantInfo(null);
+            setError(null);
+          }}
+          onIdentify={identifyPlant}
+          onStartCamera={() => startCamera('environment')}
+          onOpenFilePicker={openFilePicker}
+          onPasteClick={handlePasteButtonClick}
+        />
+
+        {/* Analysis Progress with Live Elapsed Timer and YouTube-Style Skeleton Card */}
+        {loading && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            <AnalysisProgress onCancel={handleCancelScan} />
+            <PlantSkeletonCard />
+          </div>
+        )}
+
+        {/* Error Banner */}
+        {error && (
+          <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-800/80 text-rose-200 text-xs flex items-start gap-3 shadow-lg animate-in fade-in duration-200">
+            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="flex-1 space-y-1">
+              <span className="font-bold block text-rose-300">Scan Notice</span>
+              <p className="leading-relaxed">{error}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setError(null)}
+              className="text-rose-400 hover:text-white h-7 px-2"
+            >
+              Dismiss
+            </Button>
+          </div>
+        )}
+
+        {/* Botanical / Non-Plant / Artificial Plant Results */}
+        {plantInfo && !loading && (
+          <PlantResults
+            plantInfo={plantInfo}
+            isSpeaking={isSpeaking}
+            copied={copied}
+            onToggleSpeech={toggleSpeech}
+            onCopySummary={copySummary}
+            onOpenChat={() => setIsChatOpen(true)}
+            language={language}
+          />
+        )}
+      </main>
+
+      {/* Live Viewfinder Modal */}
+      {isCameraOpen && (
+        <CameraModal
+          videoRef={videoRef}
+          cameraError={cameraError}
+          onFlipCamera={flipCamera}
+          onStopCamera={stopCamera}
+          onCapture={captureSnapshot}
+        />
+      )}
+
+      {/* Dynamic Live Translation Floating Notification */}
+      {isTranslating && (
+        <div className="fixed top-20 right-4 z-50 bg-slate-900/95 border border-emerald-500/40 text-emerald-300 text-xs px-3.5 py-2 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+          <Globe className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+          <span>Translating specimen to {SUPPORTED_LANGUAGES.find((l) => l.code === language)?.name || 'selected language'}...</span>
+        </div>
+      )}
+
+      {/* Conversational Botanist Chat Drawer (Dr. Flora) */}
+      <DoctorFloraDrawer
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        plantInfo={plantInfo}
+        messages={chatMessages}
+        input={chatInput}
+        loading={chatLoading}
+        isTranslating={isTranslating}
+        language={language}
+        onLanguageChange={handleLanguageChange}
+        onInputChange={setChatInput}
+        onSendMessage={sendChatMessage}
+      />
+
+      {/* Recent Scans History Modal */}
+      <RecentScansModal
+        isOpen={showHistoryModal}
+        onClose={() => setShowHistoryModal(false)}
+        history={history}
+        onSelectScan={handleSelectHistoryScan}
+        onClearHistory={clearHistory}
+        language={language}
+      />
+
+      {/* Install FloraAI App (APK & PWA) Modal */}
+      <InstallAppModal
+        isOpen={showInstallAppModal}
+        onClose={() => setShowInstallAppModal(false)}
+        language={language}
+      />
+
+      {/* Thumb-Friendly Mobile Bottom Navigation Bar */}
+      <MobileBottomBar
+        onCameraClick={() => startCamera('environment')}
+        onUploadClick={openFilePicker}
+        onPasteClick={handlePasteButtonClick}
+        onHistoryClick={() => setShowHistoryModal(true)}
+        onChatClick={() => setIsChatOpen(true)}
+        historyCount={history.length}
+        hasResult={Boolean(plantInfo)}
+        language={language}
+      />
+    </div>
   );
 }
